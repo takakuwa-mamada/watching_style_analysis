@@ -8,11 +8,11 @@ import re
 
 # === 設定 ===
 API_KEY = "AIzaSyDvT9BJC3NIuGMOQr5L_T9MR9WkjToP13k"  # 🔁 あなたのAPIキーを入力
-VIDEO_IDS = ["o51qIe4-qJI","QNTpY2PUrEI","6MviYZHxfkQ"]  # 🔁 任意の動画IDリスト
+VIDEO_IDS = ["6ODMqA1vjaE", "_pQii-KtBqg"]  # 🔁 任意の動画IDリスト
 #ドミニカ，日本，インド
 SAVE_DIR = "data/chat"
 INTERVAL_SECONDS = 60
-MAX_WORKERS = 3  # 並列数（適宜調整）
+MAX_WORKERS = 5  # 並列数（適宜調整）
 
 # === フォルダ作成 ===
 os.makedirs(SAVE_DIR, exist_ok=True)
