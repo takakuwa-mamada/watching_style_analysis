@@ -3,7 +3,7 @@ import glob
 import os
 
 # === チャットCSVのフォルダ ===
-CHAT_DIR = "data/football"  # 🔁 youtube_chat_csv.pyと同じフォルダを指定
+CHAT_DIR = "data/chat"
 csv_files = glob.glob(os.path.join(CHAT_DIR, "*.csv"))
 
 if not csv_files:
