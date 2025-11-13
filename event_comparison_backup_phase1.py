@@ -684,7 +684,7 @@ def extract_ngram_topics_direct(comments: List[str], top_k: int = 30) -> List[st
         vectorizer = TfidfVectorizer(
             ngram_range=(1, 3),       # 1-gram, 2-gram, 3-gram
             max_features=3000,         # 最大3000個の特徴（Step 1で拡張）
-            max_df=1.0,                # 100%出現する語も含める（Phase 1.5: 小規模イベント対応）
+            max_df=0.95,               # 95%以上の文書に出現する語は除外
             min_df=1,                  # 最低1回出現する語のみ（コメント数が少ないイベント対応）
             token_pattern=r"(?u)\b\w+\b",
             lowercase=True,
@@ -731,7 +731,7 @@ def build_topic_model(embedding_model: SentenceTransformer) -> BERTopic:
         max_features=8000,  # 6000→8000に増加（N-gram対応）
         min_df=1,
         ngram_range=(1, 3),  # 【新機能】1-gram, 2-gram, 3-gramを抽出
-        max_df=1.0  # 100%出現する語も含める（Phase 1.5: 小規模イベント対応）
+        max_df=0.95  # 95%以上の文書に出現する語（"the", "a"等）を除外
     )
     # UMAP の次元数と近傍数を増やし、高次元埋め込みをより詳細に表現する
     umap_model = UMAP(n_components=10, n_neighbors=30, min_dist=0.00, metric="cosine", random_state=42)
@@ -1686,10 +1686,8 @@ def compute_event_to_event_similarity(event_A: Dict[str, object],
     # 【改善】独自N-gram抽出によりtopic_jaccardが向上したため、トピックの重みを増加
     # Before: embedding 0.5 : lexical 0.3 : topic 0.2
     # After:  embedding 0.4 : lexical 0.2 : topic 0.4 (トピックを重視)
-    # Phase 2: embedding 0.3 : lexical 0.15 : topic 0.55 (失敗: Topic重視で全体が悪化)
-    # Phase 3: embedding 0.7 : lexical 0.1 : topic 0.2 (最適化: 統計的検証済み, p<0.001)
     if embedding_sim is not None:
-        combined_score = embedding_sim * 0.70 + lexical_sim * 0.10 + topic_jaccard * 0.20
+        combined_score = embedding_sim * 0.4 + lexical_sim * 0.2 + topic_jaccard * 0.4
         main_similarity = embedding_sim
     else:
         # 埋め込みがない場合は、トピックと語彙を同等に扱う
@@ -2181,14 +2179,12 @@ def main():
                     mean_vec = np.mean(vecs, axis=0)
                     norm = np.linalg.norm(mean_vec) + 1e-12
                     mean_vec = mean_vec / norm
-
+                    
                     # 【新機能】独自N-gram抽出でトピック語を取得
                     # BERTopicではなく、TfidfVectorizerで直接N-gramフレーズを抽出
-                    # Phase 1.6: 動的top_k調整（コメント数に応じて適応的に設定）
-                    dynamic_top_k = max(5, min(30, len(comments) // 2))  # コメント数の1/2、最小5、最大30
-                    ngram_topics = extract_ngram_topics_direct(comments, top_k=dynamic_top_k)
+                    ngram_topics = extract_ngram_topics_direct(comments, top_k=30)
                     evt["topics"] = ngram_topics  # N-gramトピックを保存
-
+                    
                     print(f"  [Event] {os.path.basename(stream_key)} event: {len(comments)} comments, {len(ngram_topics)} topics")
                 else:
                     # コメントがない場合はゼロベクトル
@@ -3458,7 +3454,7 @@ def main():
         print("\n[N-gram Topic Extraction Impact]")
         print(f"  [OK] N-gram phrases extracted directly via TfidfVectorizer")
         print(f"  [OK] Phrases like 'Real Madrid', 'penalty kick' preserved")
-        print(f"  [OK] Weight adjusted: embedding 0.7 : lexical 0.1 : topic 0.2 (Phase 3 optimal, p<0.001)")
+        print(f"  [OK] Weight adjusted: embedding 0.4 : lexical 0.2 : topic 0.4")
         
         # 論文レベル評価
         print("\n[Paper Quality Assessment]")

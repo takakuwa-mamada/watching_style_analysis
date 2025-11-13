@@ -1,0 +1,55 @@
+{
+  "baseline_statistics": {
+    "correlation_matrix": {
+      "embedding_topic": 0.5720671759213259,
+      "embedding_lexical": -0.07920898806764476,
+      "topic_lexical": 0.27522521703002784
+    },
+    "metric_statistics": {
+      "embedding": {
+        "mean": 0.47059562908751623,
+        "std": 0.1784539828690816,
+        "min": 0.2526405453681946,
+        "max": 0.933803915977478,
+        "non_zero_ratio": 1.0
+      },
+      "topic": {
+        "mean": 0.04782536562302899,
+        "std": 0.18788939304693367,
+        "min": 0.0,
+        "max": 1.0,
+        "non_zero_ratio": 0.17857142857142858
+      },
+      "lexical": {
+        "mean": 0.12924386634472654,
+        "std": 0.07599480948276707,
+        "min": 0.0,
+        "max": 0.2446254239382084,
+        "non_zero_ratio": 0.75
+      }
+    }
+  },
+  "phase2_significance_test": {
+    "t_statistic": -10.968692268842215,
+    "p_value": 1.884028344721992e-11,
+    "cohens_d": -2.0728879964966667,
+    "mean_difference": -0.046347951382533614,
+    "is_significant": true,
+    "effect_size_interpretation": "large"
+  },
+  "best_scheme_test": {
+    "t_statistic": 12.984809847316425,
+    "p_value": 3.998500024961815e-13,
+    "cohens_d": 2.453898405532988,
+    "mean_difference": 0.11868922896717649,
+    "is_significant": true,
+    "effect_size_interpretation": "large"
+  },
+  "best_weights": {
+    "embedding": 0.7000000000000002,
+    "topic": 0.20000000000000004,
+    "lexical": 0.1,
+    "expected_mean_score": 0.3519064001203399,
+    "expected_topic_score": 0.5591910682180451
+  }
+}

@@ -1,0 +1,16 @@
+﻿pair,cohens_d,magnitude,n1,n2
+Spain vs Japan,3.3339806199851862,Large,2,3
+Spain vs UK,1.9730322751051776,Large,2,4
+Spain vs France,,Large,2,1
+Spain vs USA,,Large,2,1
+Spain vs Dominican,,Large,2,1
+Japan vs UK,-4.10811938646637,Large,3,4
+Japan vs France,,Large,3,1
+Japan vs USA,,Large,3,1
+Japan vs Dominican,,Large,3,1
+UK vs France,,Large,4,1
+UK vs USA,,Large,4,1
+UK vs Dominican,,Large,4,1
+France vs USA,,Large,1,1
+France vs Dominican,,Large,1,1
+USA vs Dominican,,Large,1,1
