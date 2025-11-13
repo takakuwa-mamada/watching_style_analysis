@@ -8,11 +8,11 @@ import re
 
 # === 設定 ===
 API_KEY = "AIzaSyDvT9BJC3NIuGMOQr5L_T9MR9WkjToP13k"  # 🔁 あなたのAPIキーを入力
-VIDEO_IDS = ["y9yAC3hUMHg", "JHFY13tE1-U", "GmF05KzlGQU", "90djiXnlXso"]  # 🔁 任意の動画IDリスト
-#イギリスリーズ，イギリス中立，イギリススパーズ，日本中立
+VIDEO_IDS = ["HiVhpqfzmOQ", "QqbmZw14ar4", "0N77o0cGpZY", "uIWLpqerU80", "5Vn38n97fTE", "hqY5CHZFGE4", "CxELR4SJbfk", "i5O3E89SnsI", "ziwMoyUvAbo", "y71nsIr7kKU"]  # 🔁 任意の動画IDリスト
+#Talk Football HD, Real Madrid, YjR, L' immigré parisien, Divyansh, Markaroni, Carrusel Deportivo, Tiempo de Juego COPE, TOTAL FOOTBALL, goat
 SAVE_DIR = "data/chat"
-INTERVAL_SECONDS = 60
-MAX_WORKERS = 4  # 並列数（適宜調整）
+INTERVAL_SECONDS = 120
+MAX_WORKERS = 10  # 並列数（適宜調整）
 
 # === フォルダ作成 ===
 os.makedirs(SAVE_DIR, exist_ok=True)

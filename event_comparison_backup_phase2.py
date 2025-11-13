@@ -1686,10 +1686,8 @@ def compute_event_to_event_similarity(event_A: Dict[str, object],
     # 【改善】独自N-gram抽出によりtopic_jaccardが向上したため、トピックの重みを増加
     # Before: embedding 0.5 : lexical 0.3 : topic 0.2
     # After:  embedding 0.4 : lexical 0.2 : topic 0.4 (トピックを重視)
-    # Phase 2: embedding 0.3 : lexical 0.15 : topic 0.55 (失敗: Topic重視で全体が悪化)
-    # Phase 3: embedding 0.7 : lexical 0.1 : topic 0.2 (最適化: 統計的検証済み, p<0.001)
     if embedding_sim is not None:
-        combined_score = embedding_sim * 0.70 + lexical_sim * 0.10 + topic_jaccard * 0.20
+        combined_score = embedding_sim * 0.4 + lexical_sim * 0.2 + topic_jaccard * 0.4
         main_similarity = embedding_sim
     else:
         # 埋め込みがない場合は、トピックと語彙を同等に扱う
@@ -3458,7 +3456,7 @@ def main():
         print("\n[N-gram Topic Extraction Impact]")
         print(f"  [OK] N-gram phrases extracted directly via TfidfVectorizer")
         print(f"  [OK] Phrases like 'Real Madrid', 'penalty kick' preserved")
-        print(f"  [OK] Weight adjusted: embedding 0.7 : lexical 0.1 : topic 0.2 (Phase 3 optimal, p<0.001)")
+        print(f"  [OK] Weight adjusted: embedding 0.4 : lexical 0.2 : topic 0.4")
         
         # 論文レベル評価
         print("\n[Paper Quality Assessment]")
