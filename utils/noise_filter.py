@@ -194,13 +194,13 @@ class NoiseFilter:
         
         return quality
     
-    def filter_events_by_quality(self, events, min_quality=0.3):
+    def filter_events_by_quality(self, events, min_quality=0.2):
         """
         イベントを品質スコアでフィルタリング
         
         Args:
             events: イベントのリスト (各イベントは 'top_words' を持つ)
-            min_quality: 最小品質スコア
+            min_quality: 最小品質スコア (デフォルト0.2に緩和 - より多くのイベントを保持)
             
         Returns:
             list: フィルタリングされたイベント

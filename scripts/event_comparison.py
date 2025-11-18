@@ -744,7 +744,22 @@ def extract_ngram_topics_direct(comments: List[str], top_k: int = 30) -> List[st
         return [word for word, count in word_counts.most_common(top_k)]
 
 
-def build_topic_model(embedding_model: SentenceTransformer) -> BERTopic:
+def build_topic_model(embedding_model: SentenceTransformer, num_comments: int = 1000) -> BERTopic:
+    """
+    BERTopicモデル構築（動的パラメータ調整版）
+    
+    パラメータ:
+    - min_topic_size: コメント数の1% (最小10, 最大50)
+    - min_cluster_size: コメント数の0.5% (最小5, 最大30)  
+    - n_neighbors: コメント数に応じて調整 (15-30)
+    """
+    # 動的パラメータ計算
+    min_topic_size = max(10, min(50, num_comments // 100))
+    min_cluster_size = max(5, min(30, num_comments // 200))
+    n_neighbors = max(15, min(30, num_comments // 100))
+    
+    print(f"  [BERTopic] Dynamic params: comments={num_comments}, min_topic_size={min_topic_size}, min_cluster_size={min_cluster_size}, n_neighbors={n_neighbors}")
+    
     # トピック分類の精度向上のためのハイパーパラメータ調整
     # CountVectorizer の特徴数を増やし、単一出現語も対象に含める
     # 【重要】N-gramを有効化: 1-gram, 2-gram, 3-gramを抽出
@@ -756,10 +771,10 @@ def build_topic_model(embedding_model: SentenceTransformer) -> BERTopic:
         ngram_range=(1, 3),  # 【新機能】1-gram, 2-gram, 3-gramを抽出
         max_df=1.0  # 100%出現する語も含める（Phase 1.5: 小規模イベント対応）
     )
-    # UMAP の次元数と近傍数を増やし、高次元埋め込みをより詳細に表現する
-    umap_model = UMAP(n_components=10, n_neighbors=30, min_dist=0.00, metric="cosine", random_state=42)
-    # HDBSCAN のクラスターサイズとサンプル数を小さく設定し、小さなイベントも検出しやすくする
-    hdbscan_model = HDBSCAN(min_cluster_size=10, min_samples=2, metric="euclidean",
+    # UMAP の次元数と近傍数を動的調整
+    umap_model = UMAP(n_components=10, n_neighbors=n_neighbors, min_dist=0.00, metric="cosine", random_state=42)
+    # HDBSCAN のクラスターサイズを動的調整
+    hdbscan_model = HDBSCAN(min_cluster_size=min_cluster_size, min_samples=2, metric="euclidean",
                             cluster_selection_method="eom", prediction_data=True, core_dist_n_jobs=1)
     representation_model = MaximalMarginalRelevance(diversity=0.5)
     # スポーツ実況に関連するより多様な種トピックを含める
@@ -788,8 +803,8 @@ def build_topic_model(embedding_model: SentenceTransformer) -> BERTopic:
         representation_model=representation_model,
         calculate_probabilities=False,
         seed_topic_list=seed_topic_list,
-        # より小さなトピックサイズを許容することでイベント検出を細分化
-        min_topic_size=5,
+        # 動的 min_topic_size でイベント検出を最適化
+        min_topic_size=min_topic_size,
         nr_topics=None,
         verbose=False,
     )
@@ -960,9 +975,9 @@ def process_stream(csv_file: str, embedding_model: SentenceTransformer,
     df["lang"] = df["message_clean"].apply(detect_lang_safe)
     texts = df["message_clean"].tolist()
 
-    # 埋め込み & BERTopic
+    # 埋め込み & BERTopic (動的パラメータ適用)
     emb = embedding_model.encode(texts, batch_size=64, show_progress_bar=False, normalize_embeddings=True)
-    topic_model = build_topic_model(embedding_model)
+    topic_model = build_topic_model(embedding_model, num_comments=len(df))
     topics, _ = topic_model.fit_transform(texts, embeddings=emb)
 
     valid_idx = [i for i, t in enumerate(topics) if t != -1]
@@ -1112,18 +1127,18 @@ def detect_events(stream: StreamData, n_events: int = 5, focus_top: Optional[int
             })
     
     # ===== Noise Filtering統合 =====
-    # イベントを品質スコアでフィルタリング
+    # イベントを品質スコアでフィルタリング（閾値を0.2に緩和）
     events_before = len(events)
     events_with_quality = []
     for event in events:
         quality = NOISE_FILTER.score_topic_quality(event['top_words'])
         event['quality_score'] = quality
-        if quality >= 0.3:  # 最小品質閾値
+        if quality >= 0.2:  # 最小品質閾値 (0.3→0.2に緩和)
             events_with_quality.append(event)
     
     removed_events = events_before - len(events_with_quality)
     if removed_events > 0:
-        print(f"  [Event Filter] Removed {removed_events}/{events_before} low-quality events")
+        print(f"  [Event Filter] Removed {removed_events}/{events_before} low-quality events (threshold=0.2)")
     
     return events_with_quality
 
