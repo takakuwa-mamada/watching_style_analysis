@@ -13,6 +13,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
+import sys
+import io
+
+# ===== Windows UTF-8対応 =====
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 
 class EmbeddingThresholdOptimizer:
@@ -37,7 +44,8 @@ class EmbeddingThresholdOptimizer:
             '--embedding-match-th', str(embedding_th),
         ]
         
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # UTF-8対応: Windows環境でのエンコーディング問題を回避
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
         
         if result.returncode != 0:
             print(f"⚠️ Error running event_comparison.py with embedding_th={embedding_th}")

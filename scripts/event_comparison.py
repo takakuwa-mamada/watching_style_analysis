@@ -40,6 +40,15 @@ import argparse
 import os, re, json
 from collections import defaultdict, Counter
 from typing import Dict, List, Tuple, Optional
+
+# ===== Windows UTF-8対応 =====
+import sys
+import io
+# 標準出力をUTF-8に設定（Windows cp932エラー回避）
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 # ===== 追加ライブラリ =====
 # 言語検出ライブラリ langdetect がインストールされていない環境に対応するため、
 # try-import を用いてフォールバックを用意する。
@@ -54,6 +63,12 @@ except ImportError:
         return "unk"
     class DetectorFactory:
         seed = None
+
+# ===== Noise Filter統合 =====
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.noise_filter import NoiseFilter
+NOISE_FILTER = NoiseFilter()
 
 
 import numpy as np
@@ -704,6 +719,14 @@ def extract_ngram_topics_direct(comments: List[str], top_k: int = 30) -> List[st
         feature_names = vectorizer.get_feature_names_out()
         top_ngrams = [feature_names[i] for i in top_indices]
         
+        # ===== Noise Filtering統合 =====
+        # N-gramからノイズを除去
+        top_ngrams_filtered = NOISE_FILTER.filter_ngrams(top_ngrams)
+        removed_count = len(top_ngrams) - len(top_ngrams_filtered)
+        if removed_count > 0:
+            print(f"  [N-gram Filter] Removed {removed_count}/{len(top_ngrams)} noise n-grams")
+        top_ngrams = top_ngrams_filtered
+        
         # デバッグ出力（最初の5個のみ）
         if len(top_ngrams) > 0:
             print(f"  [N-gram抽出] Top 5: {top_ngrams[:5]}")
@@ -920,8 +943,18 @@ def process_stream(csv_file: str, embedding_model: SentenceTransformer,
     df = df.dropna(subset=["message"]).copy()
     df["message_clean"] = df["message"].astype(str).apply(preprocess_text)
     df = df[df["message_clean"].str.len() > 0].copy()
+    
+    # ===== Noise Filtering統合 =====
+    # ノイズコメント除去 (kkkk, wwww, etc.)
+    df["is_noise"] = df["message_clean"].apply(NOISE_FILTER.is_noise)
+    noise_count = df["is_noise"].sum()
+    total_before = len(df)
+    df = df[~df["is_noise"]].copy()
+    noise_ratio = noise_count / total_before if total_before > 0 else 0
+    print(f"  [Noise Filter] Removed {noise_count}/{total_before} comments ({noise_ratio:.1%})")
+    
     if df.empty:
-        print(f"Skipping {csv_file}: no usable comments")
+        print(f"Skipping {csv_file}: no usable comments after noise filtering")
         return None
     # 言語検出（後でスタイル比較に利用）
     df["lang"] = df["message_clean"].apply(detect_lang_safe)
@@ -1077,7 +1110,22 @@ def detect_events(stream: StreamData, n_events: int = 5, focus_top: Optional[int
                 "top_words": stream.group_top_words.get(gid, []),
                 "label": stream.gid_label.get(gid, f"group_{gid}")
             })
-    return events
+    
+    # ===== Noise Filtering統合 =====
+    # イベントを品質スコアでフィルタリング
+    events_before = len(events)
+    events_with_quality = []
+    for event in events:
+        quality = NOISE_FILTER.score_topic_quality(event['top_words'])
+        event['quality_score'] = quality
+        if quality >= 0.3:  # 最小品質閾値
+            events_with_quality.append(event)
+    
+    removed_events = events_before - len(events_with_quality)
+    if removed_events > 0:
+        print(f"  [Event Filter] Removed {removed_events}/{events_before} low-quality events")
+    
+    return events_with_quality
 
 def match_events_across_streams(
     events_by_stream: Dict[str, List[Dict[str, object]]],
