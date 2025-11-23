@@ -40,6 +40,15 @@ import argparse
 import os, re, json
 from collections import defaultdict, Counter
 from typing import Dict, List, Tuple, Optional
+
+# ===== Windows UTF-8対応 =====
+import sys
+import io
+# 標準出力をUTF-8に設定（Windows cp932エラー回避）
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 # ===== 追加ライブラリ =====
 # 言語検出ライブラリ langdetect がインストールされていない環境に対応するため、
 # try-import を用いてフォールバックを用意する。
@@ -54,6 +63,16 @@ except ImportError:
         return "unk"
     class DetectorFactory:
         seed = None
+
+# ===== Noise Filter統合 =====
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.noise_filter import NoiseFilter
+NOISE_FILTER = NoiseFilter()
+
+# ===== Translation Bridge統合 =====
+from utils.translation_bridge import TranslationBridge
+TRANSLATION_BRIDGE = None  # Lazy initialization
 
 
 import numpy as np
@@ -704,6 +723,14 @@ def extract_ngram_topics_direct(comments: List[str], top_k: int = 30) -> List[st
         feature_names = vectorizer.get_feature_names_out()
         top_ngrams = [feature_names[i] for i in top_indices]
         
+        # ===== Noise Filtering統合 =====
+        # N-gramからノイズを除去
+        top_ngrams_filtered = NOISE_FILTER.filter_ngrams(top_ngrams)
+        removed_count = len(top_ngrams) - len(top_ngrams_filtered)
+        if removed_count > 0:
+            print(f"  [N-gram Filter] Removed {removed_count}/{len(top_ngrams)} noise n-grams")
+        top_ngrams = top_ngrams_filtered
+        
         # デバッグ出力（最初の5個のみ）
         if len(top_ngrams) > 0:
             print(f"  [N-gram抽出] Top 5: {top_ngrams[:5]}")
@@ -721,7 +748,22 @@ def extract_ngram_topics_direct(comments: List[str], top_k: int = 30) -> List[st
         return [word for word, count in word_counts.most_common(top_k)]
 
 
-def build_topic_model(embedding_model: SentenceTransformer) -> BERTopic:
+def build_topic_model(embedding_model: SentenceTransformer, num_comments: int = 1000) -> BERTopic:
+    """
+    BERTopicモデル構築（動的パラメータ調整版）
+    
+    パラメータ:
+    - min_topic_size: コメント数の1% (最小10, 最大50)
+    - min_cluster_size: コメント数の0.5% (最小5, 最大30)  
+    - n_neighbors: コメント数に応じて調整 (15-30)
+    """
+    # 動的パラメータ計算
+    min_topic_size = max(10, min(50, num_comments // 100))
+    min_cluster_size = max(5, min(30, num_comments // 200))
+    n_neighbors = max(15, min(30, num_comments // 100))
+    
+    print(f"  [BERTopic] Dynamic params: comments={num_comments}, min_topic_size={min_topic_size}, min_cluster_size={min_cluster_size}, n_neighbors={n_neighbors}")
+    
     # トピック分類の精度向上のためのハイパーパラメータ調整
     # CountVectorizer の特徴数を増やし、単一出現語も対象に含める
     # 【重要】N-gramを有効化: 1-gram, 2-gram, 3-gramを抽出
@@ -733,10 +775,10 @@ def build_topic_model(embedding_model: SentenceTransformer) -> BERTopic:
         ngram_range=(1, 3),  # 【新機能】1-gram, 2-gram, 3-gramを抽出
         max_df=1.0  # 100%出現する語も含める（Phase 1.5: 小規模イベント対応）
     )
-    # UMAP の次元数と近傍数を増やし、高次元埋め込みをより詳細に表現する
-    umap_model = UMAP(n_components=10, n_neighbors=30, min_dist=0.00, metric="cosine", random_state=42)
-    # HDBSCAN のクラスターサイズとサンプル数を小さく設定し、小さなイベントも検出しやすくする
-    hdbscan_model = HDBSCAN(min_cluster_size=10, min_samples=2, metric="euclidean",
+    # UMAP の次元数と近傍数を動的調整
+    umap_model = UMAP(n_components=10, n_neighbors=n_neighbors, min_dist=0.00, metric="cosine", random_state=42)
+    # HDBSCAN のクラスターサイズを動的調整
+    hdbscan_model = HDBSCAN(min_cluster_size=min_cluster_size, min_samples=2, metric="euclidean",
                             cluster_selection_method="eom", prediction_data=True, core_dist_n_jobs=1)
     representation_model = MaximalMarginalRelevance(diversity=0.5)
     # スポーツ実況に関連するより多様な種トピックを含める
@@ -765,8 +807,8 @@ def build_topic_model(embedding_model: SentenceTransformer) -> BERTopic:
         representation_model=representation_model,
         calculate_probabilities=False,
         seed_topic_list=seed_topic_list,
-        # より小さなトピックサイズを許容することでイベント検出を細分化
-        min_topic_size=5,
+        # 動的 min_topic_size でイベント検出を最適化
+        min_topic_size=min_topic_size,
         nr_topics=None,
         verbose=False,
     )
@@ -920,16 +962,26 @@ def process_stream(csv_file: str, embedding_model: SentenceTransformer,
     df = df.dropna(subset=["message"]).copy()
     df["message_clean"] = df["message"].astype(str).apply(preprocess_text)
     df = df[df["message_clean"].str.len() > 0].copy()
+    
+    # ===== Noise Filtering統合 =====
+    # ノイズコメント除去 (kkkk, wwww, etc.)
+    df["is_noise"] = df["message_clean"].apply(NOISE_FILTER.is_noise)
+    noise_count = df["is_noise"].sum()
+    total_before = len(df)
+    df = df[~df["is_noise"]].copy()
+    noise_ratio = noise_count / total_before if total_before > 0 else 0
+    print(f"  [Noise Filter] Removed {noise_count}/{total_before} comments ({noise_ratio:.1%})")
+    
     if df.empty:
-        print(f"Skipping {csv_file}: no usable comments")
+        print(f"Skipping {csv_file}: no usable comments after noise filtering")
         return None
     # 言語検出（後でスタイル比較に利用）
     df["lang"] = df["message_clean"].apply(detect_lang_safe)
     texts = df["message_clean"].tolist()
 
-    # 埋め込み & BERTopic
+    # 埋め込み & BERTopic (動的パラメータ適用)
     emb = embedding_model.encode(texts, batch_size=64, show_progress_bar=False, normalize_embeddings=True)
-    topic_model = build_topic_model(embedding_model)
+    topic_model = build_topic_model(embedding_model, num_comments=len(df))
     topics, _ = topic_model.fit_transform(texts, embeddings=emb)
 
     valid_idx = [i for i, t in enumerate(topics) if t != -1]
@@ -1077,13 +1129,30 @@ def detect_events(stream: StreamData, n_events: int = 5, focus_top: Optional[int
                 "top_words": stream.group_top_words.get(gid, []),
                 "label": stream.gid_label.get(gid, f"group_{gid}")
             })
-    return events
+    
+    # ===== Noise Filtering統合 =====
+    # イベントを品質スコアでフィルタリング（閾値を0.2に緩和）
+    events_before = len(events)
+    events_with_quality = []
+    for event in events:
+        quality = NOISE_FILTER.score_topic_quality(event['top_words'])
+        event['quality_score'] = quality
+        if quality >= 0.2:  # 最小品質閾値 (0.3→0.2に緩和)
+            events_with_quality.append(event)
+    
+    removed_events = events_before - len(events_with_quality)
+    if removed_events > 0:
+        print(f"  [Event Filter] Removed {removed_events}/{events_before} low-quality events (threshold=0.2)")
+    
+    return events_with_quality
 
 def match_events_across_streams(
     events_by_stream: Dict[str, List[Dict[str, object]]],
     word_th: float,
     time_th: int,
     embed_th: Optional[float] = None,
+    streams: Optional[Dict[str, 'StreamData']] = None,
+    embedding_model: Optional['SentenceTransformer'] = None,
 ) -> Dict[Tuple[str, int], int]:
     """
     多数のイベントをペアワイズで比較し、類似するイベントを同一IDに統合する。
@@ -1182,8 +1251,46 @@ def match_events_across_streams(
                     continue
                 # 正規化済みベクトルとしてコサイン類似度
                 num = float(np.dot(emb_a, emb_b))
-                if DEBUG_VERBOSE and debug_count <= 5:
-                    print(f"  - Embedding similarity: {num:.4f} (threshold: {embed_th})")
+                
+                # ===== Translation Bridge強化 =====
+                # Translation Bridgeが有効な場合、翻訳ベースの類似度も計算
+                if TRANSLATION_BRIDGE is not None and streams is not None and embedding_model is not None:
+                    try:
+                        # top_wordsから代表的なコメントを生成 (実際のコメント取得の代わり)
+                        event_a_dict = {
+                            'comments': list(sa_raw[:10]),  # Top 10 words as proxy for comments
+                            'topics': list(sa_raw[:10])
+                        }
+                        event_b_dict = {
+                            'comments': list(sb_raw[:10]),
+                            'topics': list(sb_raw[:10])
+                        }
+                        
+                        # 翻訳ベース類似度
+                        trans_sim, trans_details = TRANSLATION_BRIDGE.get_cross_lingual_similarity(
+                            event_a_dict, event_b_dict, embedding_model
+                        )
+                        
+                        # 両方の類似度を組み合わせ（加重平均）
+                        # オリジナルのembedding: 50%, 翻訳ベース: 50%
+                        num = 0.5 * num + 0.5 * trans_sim
+                        
+                        if DEBUG_VERBOSE and debug_count <= 5:
+                            print(f"  - Embedding similarity (original): {float(np.dot(emb_a, emb_b)):.4f}")
+                            print(f"  - Translation similarity: {trans_sim:.4f}")
+                            print(f"  - Combined similarity: {num:.4f} (threshold: {embed_th})")
+                            if trans_details['cross_lingual']:
+                                print(f"  - Cross-lingual match: {trans_details['lang_A']} <-> {trans_details['lang_B']}")
+                    
+                    except Exception as e:
+                        if DEBUG_VERBOSE and debug_count <= 5:
+                            print(f"  - Translation Bridge error: {e}")
+                        # エラー時はオリジナルの類似度を使用
+                        pass
+                else:
+                    if DEBUG_VERBOSE and debug_count <= 5:
+                        print(f"  - Embedding similarity: {num:.4f} (threshold: {embed_th})")
+                
                 # 既にnormalize_embeddings=Trueで生成しているのでnormは≈1
                 if num < embed_th:
                     if DEBUG_VERBOSE and debug_count <= 5:
@@ -2130,6 +2237,9 @@ def parse_args():
     p.add_argument("--focus-top", type=int, default=10, help="ピーク検出を行う対象グループ数（Noneの場合は全グループ）")
     # Emoji timeline 可視化設定
     p.add_argument("--emoji-topk", type=int, default=10, help="各配信の絵文字タイムラインに表示する上位絵文字数")
+    # Translation Bridge (多言語対応)
+    p.add_argument("--use-translation", action="store_true", 
+                   help="Translation Bridgeを有効化（多言語イベントマッチング、Topic Jaccard改善に有効）")
     args = p.parse_args()
 
     # --folder/--pattern を --files に展開
@@ -2151,6 +2261,15 @@ def parse_args():
 def main():
     args = parse_args()
     embedding_model = SentenceTransformer(EMB_NAME)
+    
+    # Translation Bridge初期化
+    global TRANSLATION_BRIDGE
+    if args.use_translation:
+        print("\n[Translation Bridge] Initializing...")
+        TRANSLATION_BRIDGE = TranslationBridge()
+        print("[Translation Bridge] Ready for cross-lingual event matching\n")
+    else:
+        print("\n[Translation Bridge] Disabled (use --use-translation to enable)\n")
 
     # ストリーム処理
     streams: Dict[str, StreamData] = {}
@@ -2207,6 +2326,8 @@ def main():
         args.word_match_th,
         args.time_match_th,
         embed_th=args.embedding_match_th,
+        streams=streams,
+        embedding_model=embedding_model,
     )
     if not event_map:
         print("一致する共通イベントが見つかりませんでした。閾値（--time-match-th, --word-match-th, --jaccard-th）を調整して再実行してください。")
@@ -2828,7 +2949,14 @@ def main():
     print("Matching events across streams by topic similarity and time ...")
     print(f"[DEBUG] Matching parameters: word_match_th={args.word_match_th}, time_match_th={args.time_match_th}, embedding_match_th={args.embedding_match_th}")
     print(f"[DEBUG] Total events: {sum(len(evts) for evts in events_by_stream.values())}")
-    similar_event_map = match_events_across_streams(events_by_stream, args.word_match_th, args.time_match_th, args.embedding_match_th)
+    similar_event_map = match_events_across_streams(
+        events_by_stream, 
+        args.word_match_th, 
+        args.time_match_th, 
+        args.embedding_match_th,
+        streams=streams,
+        embedding_model=embedding_model
+    )
     print(f"[DEBUG] Similar event map created with {len(set(similar_event_map.values()))} unique groups")
     similar_results = []
     similar_presence = []

@@ -100,7 +100,15 @@ def load_football_comments():
             df_filtered['stream'] = meta['name']
             
             if time_col is not None:
-                df_filtered['timestamp'] = pd.to_numeric(df[time_col], errors='coerce')
+                # タイムスタンプをdatetimeに変換してから数値化
+                try:
+                    df_filtered['timestamp'] = pd.to_datetime(df[time_col], errors='coerce')
+                    # 最初のタイムスタンプからの経過秒数に変換
+                    first_time = df_filtered['timestamp'].min()
+                    df_filtered['timestamp'] = (df_filtered['timestamp'] - first_time).dt.total_seconds()
+                except:
+                    # 変換失敗時は行番号を使用
+                    df_filtered['timestamp'] = np.arange(len(df))
             else:
                 df_filtered['timestamp'] = np.arange(len(df))  # 疑似タイムスタンプ
             
@@ -249,8 +257,25 @@ def analyze_topic_timeline(df, topic_model, topic_info):
     # Outlier (-1) を除外
     df_valid = df[df['topic'] != -1].copy()
     
-    # 時間を10等分
-    df_valid['time_bin'] = pd.cut(df_valid['timestamp'], bins=10, labels=False)
+    # タイムスタンプの有効性チェック
+    if df_valid['timestamp'].isna().all():
+        print("⚠️  Warning: All timestamps are NaN, using row numbers instead")
+        df_valid['timestamp'] = np.arange(len(df_valid))
+    
+    # ユニークな値が少ない場合の対処
+    unique_timestamps = df_valid['timestamp'].nunique()
+    if unique_timestamps < 10:
+        print(f"⚠️  Warning: Only {unique_timestamps} unique timestamps, adjusting bins")
+        bins = max(2, unique_timestamps)
+    else:
+        bins = 10
+    
+    # 時間を等分
+    try:
+        df_valid['time_bin'] = pd.cut(df_valid['timestamp'], bins=bins, labels=False, duplicates='drop')
+    except Exception as e:
+        print(f"⚠️  Warning: Could not create time bins ({e}), using quantile-based bins")
+        df_valid['time_bin'] = pd.qcut(df_valid['timestamp'], q=min(10, unique_timestamps), labels=False, duplicates='drop')
     
     # 上位5トピックに絞る
     top_topics = topic_info[topic_info['Topic'] != -1].head(5)['Topic'].tolist()

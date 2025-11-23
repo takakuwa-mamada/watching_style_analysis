@@ -98,7 +98,15 @@ def load_football_data():
             df_clean['stream'] = meta['name']
             
             if time_col:
-                df_clean['timestamp'] = pd.to_numeric(df[time_col], errors='coerce')
+                # タイムスタンプをdatetimeに変換してから数値化
+                try:
+                    df_clean['timestamp'] = pd.to_datetime(df[time_col], errors='coerce')
+                    # 最初のタイムスタンプからの経過秒数に変換
+                    first_time = df_clean['timestamp'].min()
+                    df_clean['timestamp'] = (df_clean['timestamp'] - first_time).dt.total_seconds()
+                except:
+                    # 変換失敗時は行番号を使用
+                    df_clean['timestamp'] = np.arange(len(df))
             else:
                 # 疑似タイムスタンプ (行番号ベース)
                 df_clean['timestamp'] = np.arange(len(df))
