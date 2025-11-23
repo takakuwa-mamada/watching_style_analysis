@@ -70,6 +70,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.noise_filter import NoiseFilter
 NOISE_FILTER = NoiseFilter()
 
+# ===== Translation Bridge統合 =====
+from utils.translation_bridge import TranslationBridge
+TRANSLATION_BRIDGE = None  # Lazy initialization
+
 
 import numpy as np
 import pandas as pd
@@ -1147,6 +1151,8 @@ def match_events_across_streams(
     word_th: float,
     time_th: int,
     embed_th: Optional[float] = None,
+    streams: Optional[Dict[str, 'StreamData']] = None,
+    embedding_model: Optional['SentenceTransformer'] = None,
 ) -> Dict[Tuple[str, int], int]:
     """
     多数のイベントをペアワイズで比較し、類似するイベントを同一IDに統合する。
@@ -1245,8 +1251,46 @@ def match_events_across_streams(
                     continue
                 # 正規化済みベクトルとしてコサイン類似度
                 num = float(np.dot(emb_a, emb_b))
-                if DEBUG_VERBOSE and debug_count <= 5:
-                    print(f"  - Embedding similarity: {num:.4f} (threshold: {embed_th})")
+                
+                # ===== Translation Bridge強化 =====
+                # Translation Bridgeが有効な場合、翻訳ベースの類似度も計算
+                if TRANSLATION_BRIDGE is not None and streams is not None and embedding_model is not None:
+                    try:
+                        # top_wordsから代表的なコメントを生成 (実際のコメント取得の代わり)
+                        event_a_dict = {
+                            'comments': list(sa_raw[:10]),  # Top 10 words as proxy for comments
+                            'topics': list(sa_raw[:10])
+                        }
+                        event_b_dict = {
+                            'comments': list(sb_raw[:10]),
+                            'topics': list(sb_raw[:10])
+                        }
+                        
+                        # 翻訳ベース類似度
+                        trans_sim, trans_details = TRANSLATION_BRIDGE.get_cross_lingual_similarity(
+                            event_a_dict, event_b_dict, embedding_model
+                        )
+                        
+                        # 両方の類似度を組み合わせ（加重平均）
+                        # オリジナルのembedding: 50%, 翻訳ベース: 50%
+                        num = 0.5 * num + 0.5 * trans_sim
+                        
+                        if DEBUG_VERBOSE and debug_count <= 5:
+                            print(f"  - Embedding similarity (original): {float(np.dot(emb_a, emb_b)):.4f}")
+                            print(f"  - Translation similarity: {trans_sim:.4f}")
+                            print(f"  - Combined similarity: {num:.4f} (threshold: {embed_th})")
+                            if trans_details['cross_lingual']:
+                                print(f"  - Cross-lingual match: {trans_details['lang_A']} <-> {trans_details['lang_B']}")
+                    
+                    except Exception as e:
+                        if DEBUG_VERBOSE and debug_count <= 5:
+                            print(f"  - Translation Bridge error: {e}")
+                        # エラー時はオリジナルの類似度を使用
+                        pass
+                else:
+                    if DEBUG_VERBOSE and debug_count <= 5:
+                        print(f"  - Embedding similarity: {num:.4f} (threshold: {embed_th})")
+                
                 # 既にnormalize_embeddings=Trueで生成しているのでnormは≈1
                 if num < embed_th:
                     if DEBUG_VERBOSE and debug_count <= 5:
@@ -2193,6 +2237,9 @@ def parse_args():
     p.add_argument("--focus-top", type=int, default=10, help="ピーク検出を行う対象グループ数（Noneの場合は全グループ）")
     # Emoji timeline 可視化設定
     p.add_argument("--emoji-topk", type=int, default=10, help="各配信の絵文字タイムラインに表示する上位絵文字数")
+    # Translation Bridge (多言語対応)
+    p.add_argument("--use-translation", action="store_true", 
+                   help="Translation Bridgeを有効化（多言語イベントマッチング、Topic Jaccard改善に有効）")
     args = p.parse_args()
 
     # --folder/--pattern を --files に展開
@@ -2214,6 +2261,15 @@ def parse_args():
 def main():
     args = parse_args()
     embedding_model = SentenceTransformer(EMB_NAME)
+    
+    # Translation Bridge初期化
+    global TRANSLATION_BRIDGE
+    if args.use_translation:
+        print("\n[Translation Bridge] Initializing...")
+        TRANSLATION_BRIDGE = TranslationBridge()
+        print("[Translation Bridge] Ready for cross-lingual event matching\n")
+    else:
+        print("\n[Translation Bridge] Disabled (use --use-translation to enable)\n")
 
     # ストリーム処理
     streams: Dict[str, StreamData] = {}
@@ -2270,6 +2326,8 @@ def main():
         args.word_match_th,
         args.time_match_th,
         embed_th=args.embedding_match_th,
+        streams=streams,
+        embedding_model=embedding_model,
     )
     if not event_map:
         print("一致する共通イベントが見つかりませんでした。閾値（--time-match-th, --word-match-th, --jaccard-th）を調整して再実行してください。")
@@ -2891,7 +2949,14 @@ def main():
     print("Matching events across streams by topic similarity and time ...")
     print(f"[DEBUG] Matching parameters: word_match_th={args.word_match_th}, time_match_th={args.time_match_th}, embedding_match_th={args.embedding_match_th}")
     print(f"[DEBUG] Total events: {sum(len(evts) for evts in events_by_stream.values())}")
-    similar_event_map = match_events_across_streams(events_by_stream, args.word_match_th, args.time_match_th, args.embedding_match_th)
+    similar_event_map = match_events_across_streams(
+        events_by_stream, 
+        args.word_match_th, 
+        args.time_match_th, 
+        args.embedding_match_th,
+        streams=streams,
+        embedding_model=embedding_model
+    )
     print(f"[DEBUG] Similar event map created with {len(set(similar_event_map.values()))} unique groups")
     similar_results = []
     similar_presence = []
