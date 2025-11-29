@@ -21,18 +21,33 @@ from hdbscan import HDBSCAN
 import warnings
 warnings.filterwarnings('ignore')
 
-# 日本語フォント設定
-plt.rcParams['font.sans-serif'] = ['MS Gothic', 'Yu Gothic', 'Meiryo']
+# UTF-8エンコーディング設定（文字化け防止）
+import sys
+import io
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+# 日本語フォント設定（優先順位を変更）
+import matplotlib
+matplotlib.rcParams['font.family'] = 'sans-serif'
+matplotlib.rcParams['font.sans-serif'] = ['Yu Gothic', 'Meiryo', 'MS Gothic', 'DejaVu Sans']
+matplotlib.rcParams['axes.unicode_minus'] = False
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = ['Yu Gothic', 'Meiryo', 'MS Gothic', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False
 
 # ==================== データ設定 ====================
 FOOTBALL_STREAMS = {
-    # El Clasico streams
+    # El Clasico streams (10配信)
     '⏱️ MINUTO A MINUTO _ Real Madrid vs Barcelona _ El Clásico_chat_log.csv': {
         'country': 'Spain', 'name': 'Spain_1'
     },
     '⚽️ REAL MADRID vs FC BARCELONA _ #LaLiga 25_26 - Jornada 10 _ \'EL CLÁSICO\' EN DIRECTO_chat_log.csv': {
         'country': 'Spain', 'name': 'Spain_2'
+    },
+    'REAL MADRID VS FC BARCELONA EN DIRECTO _ EL CLÁSICO _ LALIGA _ Tiempo de Juego COPE _ EN VIVO_chat_log.csv': {
+        'country': 'Spain', 'name': 'Spain_3'
     },
     '【エルクラシコ】レアルマドリード×バルセロナ 0_15キックオフ リアルタイム戦術分析_chat_log.csv': {
         'country': 'Japan', 'name': 'Japan_1'
@@ -57,7 +72,7 @@ FOOTBALL_STREAMS = {
     }
 }
 
-DATA_DIR = 'data/chat'
+DATA_DIR = 'data/football/レアルマドリードvsバルセロナ'
 OUTPUT_DIR = 'output/bertopic_analysis'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -344,7 +359,7 @@ def save_topic_details(topic_model, topic_info):
 # ==================== メイン実行 ====================
 def main():
     print("="*80)
-    print("🏆 BERTopic Analysis - Football-Only (9 Streams, 4 Countries)")
+    print("🏆 BERTopic Analysis - El Clasico Special (10 Streams, 4 Countries)")
     print("="*80)
     
     # 1. データ読み込み
